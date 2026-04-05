@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visual Drift Judge</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+<button class="back-button" type="button" onclick="window.history.back()" aria-label="Go back">
+    <img src="{{ url_for('static', filename='img/arrow.png') }}" alt="">
+</button>
+<main class="page-shell">
+    <section class="upload-panel">
+        <p class="eyebrow">Visual Drift Judge</p>
+        <h2>Upload a drift clip for scoring</h2>
+        <p class="subtitle">
+            Drag and drop a video into the area below, or click to choose a file.
+            Then press the Process Video button to evaluate a clip.
+        </p>
+
+        <form id="upload-form" class="upload-form">
+            <label id="drop-zone" class="drop-zone" for="video-input">
+                <input id="video-input" name="video" type="file" accept="video/*" hidden>
+                <span class="drop-zone-title">Drop your video here</span>
+                <span class="drop-zone-text">MP4, MOV, AVI, MKV, WEBM, MPEG, MPG</span>
+                <span id="selected-file" class="selected-file">No file selected</span>
+            </label>
+
+            <button id="submit-button" class="submit-button upload-submit-button" type="submit">Process Video</button>
+        </form>
+
+        <p id="status-message" class="status-message" aria-live="polite"></p>
+    </section>
+</main>
+
+<script>
+    const form = document.getElementById('upload-form');
+    const input = document.getElementById('video-input');
+    const dropZone = document.getElementById('drop-zone');
+    const selectedFile = document.getElementById('selected-file');
+    const statusMessage = document.getElementById('status-message');
+    const submitButton = document.getElementById('submit-button');
+
+    const setStatus = (message, isError = false) => {
+        statusMessage.textContent = message;
+        statusMessage.dataset.state = isError ? 'error' : 'default';
+    };
+
+    const updateSubmitButtonState = () => {
+        submitButton.classList.toggle('is-ready', input.files.length > 0);
+    };
+
+    const updateSelectedFile = () => {
+        if (input.files.length > 0) {
+            selectedFile.textContent = input.files[0].name;
+            setStatus('Ready to process.');
+        } else {
+            selectedFile.textContent = 'No file selected';
+            setStatus('');
+        }
+        updateSubmitButtonState();
+    };
+
+    ['dragenter', 'dragover'].forEach((eventName) => {
+        dropZone.addEventListener(eventName, (event) => {
+            event.preventDefault();
+            dropZone.classList.add('is-dragging');
+        });
+    });
+
+    ['dragleave', 'drop'].forEach((eventName) => {
+        dropZone.addEventListener(eventName, (event) => {
+            event.preventDefault();
+            dropZone.classList.remove('is-dragging');
+        });
+    });
+
+    dropZone.addEventListener('drop', (event) => {
+        const files = event.dataTransfer.files;
+        if (files.length > 0) {
+            input.files = files;
+            updateSelectedFile();
+        }
+    });
+
+    input.addEventListener('change', updateSelectedFile);
+
+    form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+
+        if (!input.files.length) {
+            setStatus('Choose a video first.', true);
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('video', input.files[0]);
+
+        submitButton.disabled = true;
+        setStatus('Processing video. This may take a little time...');
+
+        try {
+            const response = await fetch('/process', {
+                method: 'POST',
+                body: formData,
+            });
+
+            if (!response.ok) {
+                let message = 'Processing failed.';
+
+                try {
+                    const data = await response.json();
+                    if (data.error) {
+                        message = data.error;
+                    }
+                } catch (parseError) {
+                    message = 'Processing failed.';
+                }
+
+                throw new Error(message);
+            }
+
+            const data = await response.json();
+            setStatus(`Processing complete. Saved as ${data.processed_file} in the processed folder.`);
+        } catch (error) {
+            setStatus(error.message, true);
+        } finally {
+            submitButton.disabled = false;
+            updateSubmitButtonState();
+        }
+    });
+
+    updateSubmitButtonState();
+</script>
+</body>
+</html>

@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Config Selection</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+<main class="page-shell">
+    <section class="selection-panel">
+        <p class="eyebrow">Visual Drift Judge</p>
+        <p class="selection-title">Config selection:</p>
+
+        <div class="selection-box">
+            <div id="config-list" class="config-list" role="listbox" aria-label="Available configurations">
+                {% if config_names %}
+                    {% for config_name in config_names %}
+                        <button
+                            type="button"
+                            class="config-list-item{% if loop.first %} is-selected{% endif %}"
+                            data-config-name="{{ config_name }}"
+                        >
+                            {{ config_name }}
+                        </button>
+                    {% endfor %}
+                {% else %}
+                    <p class="empty-state">No saved configs found.</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="button-row selection-actions">
+            <button id="load-config-button" class="submit-button" type="button">Load</button>
+            <button id="create-config-button" class="submit-button secondary-button" type="button">+ Create</button>
+        </div>
+    </section>
+</main>
+
+<script>
+    const configList = document.getElementById('config-list');
+    const loadButton = document.getElementById('load-config-button');
+    const createButton = document.getElementById('create-config-button');
+
+    const getSelectedButton = () => configList.querySelector('.config-list-item.is-selected');
+
+    if (configList) {
+        configList.addEventListener('click', (event) => {
+            const item = event.target.closest('.config-list-item');
+            if (!item) {
+                return;
+            }
+
+            configList.querySelectorAll('.config-list-item').forEach((button) => {
+                button.classList.toggle('is-selected', button === item);
+            });
+        });
+    }
+
+    loadButton.addEventListener('click', () => {
+        const selectedButton = getSelectedButton();
+        if (!selectedButton) {
+            return;
+        }
+
+        const configName = selectedButton.dataset.configName;
+        window.location.href = `/config?name=${encodeURIComponent(configName)}`;
+    });
+
+    createButton.addEventListener('click', () => {
+        window.location.href = '/config';
+    });
+</script>
+</body>
+</html>

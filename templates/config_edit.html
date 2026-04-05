@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Drift Configuration Editor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+<button class="back-button" type="button" onclick="window.history.back()" aria-label="Go back">
+    <img src="{{ url_for('static', filename='img/arrow.png') }}" alt="">
+</button>
+<main class="page-shell">
+    <section class="config-panel">
+        <p class="eyebrow">Visual Drift Judge</p>
+        <h2>Build a clipping-point configuration</h2>
+        <p class="subtitle">
+            Enter a configuration name, choose how many clipping points you need, edit the settings and proceed to upload.
+        </p>
+
+        <section class="control-panel">
+            <div class="control-grid">
+                <label class="field-group">
+                    <span class="field-label">Configuration name</span>
+                    <input id="config-name" class="text-input" type="text" placeholder="Example: Summer Final Layout">
+                </label>
+
+                <label class="field-group">
+                    <span class="field-label">Number of clipping points</span>
+                    <input id="clip-count" class="text-input" type="number" min="1" step="1" value="1">
+                </label>
+            </div>
+
+            <div class="button-row editor-actions">
+                <button id="save-button" class="submit-button" type="button">Save</button>
+            </div>
+        </section>
+
+        <p id="status-message" class="status-message" aria-live="polite"></p>
+
+        <section id="points-grid" class="points-grid" aria-live="polite"></section>
+
+        <div class="button-row editor-actions bottom-actions">
+            <button id="continue-button" class="submit-button secondary-button" type="button">Continue to input</button>
+        </div>
+    </section>
+</main>
+
+<script>
+    const configNameInput = document.getElementById('config-name');
+    const clipCountInput = document.getElementById('clip-count');
+    const saveButton = document.getElementById('save-button');
+    const continueButton = document.getElementById('continue-button');
+    const pointsGrid = document.getElementById('points-grid');
+    const statusMessage = document.getElementById('status-message');
+    const initialConfigName = new URLSearchParams(window.location.search).get('name');
+
+    const setStatus = (message, isError = false) => {
+        statusMessage.textContent = message;
+        statusMessage.dataset.state = isError ? 'error' : 'default';
+    };
+
+    const createToggleMarkup = (selectedValue) => `
+        <div class="toggle-group" data-toggle-group>
+            <button type="button" class="toggle-option${selectedValue === 'back wheels' ? ' is-active' : ''}" data-wheel-value="back wheels">Back wheels</button>
+            <button type="button" class="toggle-option${selectedValue === 'front wheels' ? ' is-active' : ''}" data-wheel-value="front wheels">Front wheels</button>
+            <input type="hidden" class="wheel-reference-input" value="${selectedValue}">
+        </div>
+    `;
+
+    const renderPoints = (count, existingPoints = []) => {
+        pointsGrid.innerHTML = '';
+
+        for (let index = 0; index < count; index += 1) {
+            const point = existingPoints[index] || {};
+            const card = document.createElement('article');
+            const selectedValue = point.wheel_reference || 'back wheels';
+            const angleValue = point.target_angle ?? '';
+
+            card.className = 'point-card';
+            card.innerHTML = `
+                <p class="point-index">Clipping point ${index + 1}</p>
+                <label class="field-group">
+                    <span class="field-label">Target angle</span>
+                    <input type="number" step="0.01" class="text-input point-angle-input" value="${angleValue}">
+                </label>
+                <div class="field-group">
+                    <span class="field-label">Reference wheels</span>
+                    ${createToggleMarkup(selectedValue)}
+                </div>
+            `;
+
+            pointsGrid.appendChild(card);
+        }
+    };
+
+    const getPointData = () => {
+        return Array.from(pointsGrid.querySelectorAll('.point-card')).map((card) => ({
+            target_angle: card.querySelector('.point-angle-input').value,
+            wheel_reference: card.querySelector('.wheel-reference-input').value || 'back wheels',
+        }));
+    };
+
+    const getPayload = () => {
+        const clippingPoints = Math.max(1, Number.parseInt(clipCountInput.value || '1', 10));
+        return {
+            configuration_name: configNameInput.value.trim(),
+            clipping_points: clippingPoints,
+            points: getPointData().slice(0, clippingPoints),
+        };
+    };
+
+    const validateContinuePayload = (payload) => {
+        if (!payload.configuration_name) {
+            return 'Enter a configuration name before continuing.';
+        }
+
+        if (!payload.points.length || payload.points.length !== payload.clipping_points) {
+            return 'Each clipping point must have its own settings.';
+        }
+
+        for (let index = 0; index < payload.points.length; index += 1) {
+            if (String(payload.points[index].target_angle).trim() === '') {
+                return `Target angle is required for clipping point ${index + 1}.`;
+            }
+        }
+
+        return null;
+    };
+
+    pointsGrid.addEventListener('click', (event) => {
+        const button = event.target.closest('.toggle-option');
+        if (!button) {
+            return;
+        }
+
+        const group = button.closest('[data-toggle-group]');
+        const hiddenInput = group.querySelector('.wheel-reference-input');
+        const value = button.dataset.wheelValue;
+
+        hiddenInput.value = value;
+        group.querySelectorAll('.toggle-option').forEach((option) => {
+            option.classList.toggle('is-active', option === button);
+        });
+    });
+
+    clipCountInput.addEventListener('input', () => {
+        const count = Math.max(1, Number.parseInt(clipCountInput.value || '1', 10));
+        clipCountInput.value = count;
+        renderPoints(count, getPointData());
+    });
+
+    saveButton.addEventListener('click', async () => {
+        const payload = getPayload();
+        const configurationName = payload.configuration_name;
+
+        if (!configurationName) {
+            setStatus('Enter a configuration name before saving.', true);
+            return;
+        }
+
+        saveButton.disabled = true;
+        setStatus('Saving configuration...');
+
+        try {
+            const response = await fetch('/api/configs', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(payload),
+            });
+
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.error || 'Could not save configuration.');
+            }
+
+            setStatus(`Saved to ${data.filename}.`);
+        } catch (error) {
+            setStatus(error.message, true);
+        } finally {
+            saveButton.disabled = false;
+        }
+    });
+
+    continueButton.addEventListener('click', async () => {
+        const payload = getPayload();
+        const validationError = validateContinuePayload(payload);
+
+        if (validationError) {
+            setStatus(validationError, true);
+            return;
+        }
+
+        saveButton.disabled = true;
+        continueButton.disabled = true;
+        setStatus('Moving configuration into app state...');
+
+        try {
+            const response = await fetch('/api/configs/continue', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(payload),
+            });
+
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.error || 'Could not continue with this configuration.');
+            }
+
+            setStatus(`Configuration ready for input: ${data.active_config.configuration_name}.`);
+            window.location.href = '/upload';
+        } catch (error) {
+            setStatus(error.message, true);
+        } finally {
+            saveButton.disabled = false;
+            continueButton.disabled = false;
+        }
+    });
+
+    const loadConfiguration = async (configurationName) => {
+        if (!configurationName) {
+            setStatus('Enter a configuration name before loading.', true);
+            return;
+        }
+
+        saveButton.disabled = true;
+        continueButton.disabled = true;
+        setStatus('Loading configuration...');
+
+        try {
+            const response = await fetch(`/api/configs/${encodeURIComponent(configurationName)}`);
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || 'Could not load configuration.');
+            }
+
+            configNameInput.value = data.configuration_name || configurationName;
+            clipCountInput.value = data.clipping_points || 1;
+            renderPoints(data.clipping_points || 1, data.points || []);
+            setStatus(`Loaded ${configurationName}.`);
+        } catch (error) {
+            setStatus(error.message, true);
+        } finally {
+            saveButton.disabled = false;
+            continueButton.disabled = false;
+        }
+    };
+
+    renderPoints(1);
+
+    if (initialConfigName) {
+        loadConfiguration(initialConfigName);
+    }
+</script>
+</body>
+</html>
