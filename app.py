@@ -269,6 +269,7 @@ def continue_with_config():
     ACTIVE_CONFIG_INPUT["configuration_name"] = config_name
     ACTIVE_CONFIG_INPUT["clipping_points"] = clipping_points
     ACTIVE_CONFIG_INPUT["points"] = normalized_points
+    # TODO: продумать логику передачи информации о текущем конфиге в модель и способ оценки заезда
 
     print("Received config input from page:")
     print(f"  configuration_name: {ACTIVE_CONFIG_INPUT['configuration_name']}")
