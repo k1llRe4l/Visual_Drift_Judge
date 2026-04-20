@@ -1,6 +1,7 @@
 import os
 os.environ["CORE_MODEL_SAM3_ENABLED"] = "True"
 import json
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -28,6 +29,8 @@ ACTIVE_CONFIG_INPUT = {
     "clipping_points": 0,
     "points": [],
 }
+PROCESS_JOBS = {}
+PROCESS_JOBS_LOCK = threading.Lock()
 
 
 def allowed_file(filename):
@@ -56,6 +59,82 @@ def empty_directory(directory):
     for item in directory_path.iterdir():
         if item.is_file():
             try_delete_file(item)
+
+
+def update_process_job(job_id, **updates):
+    with PROCESS_JOBS_LOCK:
+        job = PROCESS_JOBS.get(job_id)
+        if job is None:
+            return
+        job.update(updates)
+
+
+def append_process_log(job_id, message):
+    print(message)
+    with PROCESS_JOBS_LOCK:
+        job = PROCESS_JOBS.get(job_id)
+        if job is None:
+            return
+        job.setdefault("logs", []).append(message)
+
+
+def run_process_job(job_id, input_path, output_path, output_name):
+    started_at = time.time()
+
+    try:
+        from model import process_video
+
+        append_process_log(job_id, f"Starting video evaluation for {Path(input_path).name}")
+
+        def progress_callback(evaluated_frames, total_evaluated_frames, elapsed_seconds):
+            eta_seconds = None
+            if evaluated_frames > 0 and total_evaluated_frames >= evaluated_frames:
+                eta_seconds = max(
+                    (elapsed_seconds / evaluated_frames) * (total_evaluated_frames - evaluated_frames),
+                    0.0,
+                )
+
+            update_process_job(
+                job_id,
+                status="processing",
+                evaluated_frames=evaluated_frames,
+                total_evaluated_frames=total_evaluated_frames,
+                eta_seconds=eta_seconds,
+            )
+
+        def log_callback(message):
+            append_process_log(job_id, message)
+
+        process_video(
+            input_path,
+            output_path,
+            progress_callback=progress_callback,
+            log_callback=log_callback,
+        )
+
+        append_process_log(job_id, f"Processing complete. Saved as {output_name} in the processed folder.")
+        append_process_log(job_id, f"Output path: {output_path}")
+
+        update_process_job(
+            job_id,
+            status="completed",
+            processed_file=output_name,
+            processed_path=str(output_path),
+            completed_at=time.time(),
+            elapsed_seconds=time.time() - started_at,
+        )
+    except Exception as exc:
+        empty_directory(OUTPUT_DIR)
+        append_process_log(job_id, f"Processing failed: {exc}")
+        update_process_job(
+            job_id,
+            status="failed",
+            error=str(exc),
+            completed_at=time.time(),
+            elapsed_seconds=time.time() - started_at,
+        )
+    finally:
+        empty_directory(UPLOAD_DIR)
 
 
 @app.route("/")
@@ -228,25 +307,37 @@ def process():
     output_path = OUTPUT_DIR / f"{job_id}_{output_name}"
 
     file.save(input_path)
+    with PROCESS_JOBS_LOCK:
+        PROCESS_JOBS[job_id] = {
+            "job_id": job_id,
+            "status": "queued",
+            "uploaded_file": input_path.name,
+            "uploaded_path": str(input_path),
+            "processed_file": output_name,
+            "processed_path": str(output_path),
+            "evaluated_frames": 0,
+            "total_evaluated_frames": 0,
+            "eta_seconds": None,
+            "logs": [],
+        }
 
-    try:
-        from model import process_video
+    worker = threading.Thread(
+        target=run_process_job,
+        args=(job_id, input_path, output_path, output_name),
+        daemon=True,
+    )
+    worker.start()
 
-        process_video(input_path, output_path)
-        return jsonify(
-            {
-                "message": "Processing complete.",
-                "uploaded_file": input_path.name,
-                "processed_file": output_path.name,
-                "uploaded_path": str(input_path),
-                "processed_path": str(output_path),
-            }
-        )
-    except Exception as exc:
-        empty_directory(OUTPUT_DIR)
-        return jsonify({"error": f"Processing failed: {exc}"}), 500
-    finally:
-        empty_directory(UPLOAD_DIR)
+    return jsonify({"job_id": job_id}), 202
+
+
+@app.get("/process/<job_id>")
+def process_status(job_id):
+    with PROCESS_JOBS_LOCK:
+        job = PROCESS_JOBS.get(job_id)
+        if job is None:
+            return jsonify({"error": "Processing job not found."}), 404
+        return jsonify(job)
 
 
 if __name__ == "__main__":

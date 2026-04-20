@@ -30,7 +30,19 @@
             <button id="submit-button" class="submit-button upload-submit-button" type="submit">Process Video</button>
         </form>
 
-        <p id="status-message" class="status-message" aria-live="polite"></p>
+        <section id="progress-panel" class="progress-panel" hidden>
+            <div class="progress-bar-track">
+                <div id="progress-bar-fill" class="progress-bar-fill"></div>
+            </div>
+            <div class="progress-meta">
+                <span id="progress-counter">0 / 0 evaluated frames</span>
+                <span id="progress-eta">Estimating time...</span>
+            </div>
+            <section class="log-panel">
+                <p class="log-title">Processing log</p>
+                <pre id="log-output" class="log-output">Waiting for processing to start...</pre>
+            </section>
+        </section>
     </section>
 </main>
 
@@ -39,12 +51,28 @@
     const input = document.getElementById('video-input');
     const dropZone = document.getElementById('drop-zone');
     const selectedFile = document.getElementById('selected-file');
-    const statusMessage = document.getElementById('status-message');
     const submitButton = document.getElementById('submit-button');
+    const progressPanel = document.getElementById('progress-panel');
+    const progressBarFill = document.getElementById('progress-bar-fill');
+    const progressCounter = document.getElementById('progress-counter');
+    const progressEta = document.getElementById('progress-eta');
+    const logOutput = document.getElementById('log-output');
+    let activeJobId = null;
+    let pollHandle = null;
 
-    const setStatus = (message, isError = false) => {
-        statusMessage.textContent = message;
-        statusMessage.dataset.state = isError ? 'error' : 'default';
+    const formatEta = (etaSeconds) => {
+        if (etaSeconds === null || etaSeconds === undefined || Number.isNaN(etaSeconds)) {
+            return 'Estimating time...';
+        }
+
+        const rounded = Math.max(0, Math.ceil(etaSeconds));
+        const minutes = Math.floor(rounded / 60);
+        const seconds = rounded % 60;
+        return `Estimated time left: ${minutes}:${String(seconds).padStart(2, '0')}`;
+    };
+
+    const setLogOutput = (lines) => {
+        logOutput.textContent = Array.isArray(lines) ? lines.join('\n') : String(lines || '');
     };
 
     const updateSubmitButtonState = () => {
@@ -54,12 +82,60 @@
     const updateSelectedFile = () => {
         if (input.files.length > 0) {
             selectedFile.textContent = input.files[0].name;
-            setStatus('Ready to process.');
         } else {
             selectedFile.textContent = 'No file selected';
-            setStatus('');
         }
         updateSubmitButtonState();
+    };
+
+    const updateProgress = (job) => {
+        const totalFrames = job.total_evaluated_frames || 0;
+        const evaluatedFrames = job.evaluated_frames || 0;
+        const percent = totalFrames > 0 ? Math.min((evaluatedFrames / totalFrames) * 100, 100) : 0;
+
+        progressBarFill.style.width = `${percent}%`;
+        progressCounter.textContent = `${evaluatedFrames} / ${totalFrames} evaluated frames`;
+        progressEta.textContent = formatEta(job.eta_seconds);
+        setLogOutput(job.logs || []);
+    };
+
+    const stopPolling = () => {
+        if (pollHandle !== null) {
+            window.clearInterval(pollHandle);
+            pollHandle = null;
+        }
+    };
+
+    const pollJobStatus = async () => {
+        if (!activeJobId) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`/process/${activeJobId}`);
+            const job = await response.json();
+
+            if (!response.ok) {
+                throw new Error(job.error || 'Could not read processing status.');
+            }
+
+            updateProgress(job);
+
+            if (job.status === 'completed') {
+                stopPolling();
+                submitButton.disabled = false;
+                updateSubmitButtonState();
+            } else if (job.status === 'failed') {
+                stopPolling();
+                submitButton.disabled = false;
+                updateSubmitButtonState();
+            }
+        } catch (error) {
+            stopPolling();
+            submitButton.disabled = false;
+            updateSubmitButtonState();
+            setLogOutput([error.message]);
+        }
     };
 
     ['dragenter', 'dragover'].forEach((eventName) => {
@@ -90,15 +166,21 @@
         event.preventDefault();
 
         if (!input.files.length) {
-            setStatus('Choose a video first.', true);
+            progressPanel.hidden = false;
+            setLogOutput(['Choose a video first.']);
             return;
         }
 
         const formData = new FormData();
         formData.append('video', input.files[0]);
 
+        stopPolling();
         submitButton.disabled = true;
-        setStatus('Processing video. This may take a little time...');
+        progressPanel.hidden = false;
+        progressBarFill.style.width = '0%';
+        progressCounter.textContent = '0 / 0 evaluated frames';
+        progressEta.textContent = 'Preparing evaluation...';
+        setLogOutput(['Preparing evaluation...']);
 
         try {
             const response = await fetch('/process', {
@@ -107,27 +189,18 @@
             });
 
             if (!response.ok) {
-                let message = 'Processing failed.';
-
-                try {
-                    const data = await response.json();
-                    if (data.error) {
-                        message = data.error;
-                    }
-                } catch (parseError) {
-                    message = 'Processing failed.';
-                }
-
-                throw new Error(message);
+                const data = await response.json();
+                throw new Error(data.error || 'Processing failed.');
             }
 
             const data = await response.json();
-            setStatus(`Processing complete. Saved as ${data.processed_file} in the processed folder.`);
+            activeJobId = data.job_id;
+            pollHandle = window.setInterval(pollJobStatus, 1000);
+            await pollJobStatus();
         } catch (error) {
-            setStatus(error.message, true);
-        } finally {
             submitButton.disabled = false;
             updateSubmitButtonState();
+            setLogOutput([error.message]);
         }
     });
 
