@@ -1,3 +1,5 @@
+# TODO: добавить README
+# TODO: пободаться с CUDA и несовместимостью версий библиотек
 import os
 os.environ["CORE_MODEL_SAM3_ENABLED"] = "True"
 import json
@@ -5,7 +7,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, send_file
 from werkzeug.utils import secure_filename
 
 
@@ -27,6 +29,8 @@ app.config["MAX_CONTENT_LENGTH"] = 1024 * 1024 * 1024
 ACTIVE_CONFIG_INPUT = {
     "configuration_name": "",
     "clipping_points": 0,
+    "max_trajectory_score": 0,
+    "max_angle_score": 0,
     "points": [],
 }
 PROCESS_JOBS = {}
@@ -105,12 +109,26 @@ def run_process_job(job_id, input_path, output_path, output_name):
         def log_callback(message):
             append_process_log(job_id, message)
 
-        process_video(
+        active_config = {
+            "configuration_name": ACTIVE_CONFIG_INPUT["configuration_name"],
+            "clipping_points": ACTIVE_CONFIG_INPUT["clipping_points"],
+            "max_trajectory_score": ACTIVE_CONFIG_INPUT["max_trajectory_score"],
+            "max_angle_score": ACTIVE_CONFIG_INPUT["max_angle_score"],
+            "points": [point.copy() for point in ACTIVE_CONFIG_INPUT["points"]],
+        }
+
+        process_result = process_video(
             input_path,
             output_path,
+            active_config=active_config,
             progress_callback=progress_callback,
             log_callback=log_callback,
         )
+        score_summary = (process_result or {}).get("scores") or {
+            "line_score": 0.0,
+            "angle_score": 0.0,
+            "total_score": 0.0,
+        }
 
         append_process_log(job_id, f"Processing complete. Saved as {output_name} in the processed folder.")
         append_process_log(job_id, f"Output path: {output_path}")
@@ -120,6 +138,7 @@ def run_process_job(job_id, input_path, output_path, output_name):
             status="completed",
             processed_file=output_name,
             processed_path=str(output_path),
+            scores=score_summary,
             completed_at=time.time(),
             elapsed_seconds=time.time() - started_at,
         )
@@ -153,12 +172,41 @@ def upload_page():
     return render_template("video_upload.html")
 
 
+@app.route("/result/<job_id>")
+def result_page(job_id):
+    with PROCESS_JOBS_LOCK:
+        job = PROCESS_JOBS.get(job_id)
+        if job is None:
+            return render_template("result_view.html", job_id=job_id, job=None), 404
+
+        job_snapshot = dict(job)
+        job_snapshot["scores"] = dict(job.get("scores") or {})
+
+    return render_template("result_view.html", job_id=job_id, job=job_snapshot)
+
+
 def get_config_path(config_name):
     safe_name = secure_filename(config_name).strip()
     if not safe_name:
         raise ValueError("Configuration name is required.")
 
     return CONFIGS_DIR / f"{safe_name}.json"
+
+
+def validate_score_limits(payload):
+    try:
+        max_trajectory_score = int(payload.get("max_trajectory_score"))
+        max_angle_score = int(payload.get("max_angle_score"))
+    except (TypeError, ValueError):
+        raise ValueError("Max. trajectory score and Max. angle score must be whole numbers.")
+
+    if max_trajectory_score < 0 or max_angle_score < 0:
+        raise ValueError("Max. trajectory score and Max. angle score must be at least 0.")
+
+    if max_trajectory_score + max_angle_score > 100:
+        raise ValueError("Сумма баллов по двум критериям не должна превышать 100")
+
+    return max_trajectory_score, max_angle_score
 
 
 @app.get("/api/configs/<config_name>")
@@ -191,6 +239,11 @@ def save_config():
     if clipping_points < 1:
         return jsonify({"error": "Number of clipping points must be at least 1."}), 400
 
+    try:
+        max_trajectory_score, max_angle_score = validate_score_limits(payload)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
     if len(points) != clipping_points:
         return jsonify({"error": "Each clipping point must have its own settings."}), 400
 
@@ -211,6 +264,8 @@ def save_config():
     config_data = {
         "configuration_name": config_name,
         "clipping_points": clipping_points,
+        "max_trajectory_score": max_trajectory_score,
+        "max_angle_score": max_angle_score,
         "points": normalized_points,
     }
 
@@ -244,6 +299,11 @@ def continue_with_config():
     if clipping_points < 1:
         return jsonify({"error": "Number of clipping points must be at least 1."}), 400
 
+    try:
+        max_trajectory_score, max_angle_score = validate_score_limits(payload)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
     if len(points) != clipping_points:
         return jsonify({"error": "Each clipping point must have its own settings."}), 400
 
@@ -268,12 +328,15 @@ def continue_with_config():
 
     ACTIVE_CONFIG_INPUT["configuration_name"] = config_name
     ACTIVE_CONFIG_INPUT["clipping_points"] = clipping_points
+    ACTIVE_CONFIG_INPUT["max_trajectory_score"] = max_trajectory_score
+    ACTIVE_CONFIG_INPUT["max_angle_score"] = max_angle_score
     ACTIVE_CONFIG_INPUT["points"] = normalized_points
-    # TODO: продумать логику передачи информации о текущем конфиге в модель и способ оценки заезда
 
     print("Received config input from page:")
     print(f"  configuration_name: {ACTIVE_CONFIG_INPUT['configuration_name']}")
     print(f"  clipping_points: {ACTIVE_CONFIG_INPUT['clipping_points']}")
+    print(f"  max_trajectory_score: {ACTIVE_CONFIG_INPUT['max_trajectory_score']}")
+    print(f"  max_angle_score: {ACTIVE_CONFIG_INPUT['max_angle_score']}")
     print("  points:")
     for point in ACTIVE_CONFIG_INPUT["points"]:
         print(
@@ -319,6 +382,11 @@ def process():
             "evaluated_frames": 0,
             "total_evaluated_frames": 0,
             "eta_seconds": None,
+            "scores": {
+                "line_score": 0.0,
+                "angle_score": 0.0,
+                "total_score": 0.0,
+            },
             "logs": [],
         }
 
@@ -339,6 +407,34 @@ def process_status(job_id):
         if job is None:
             return jsonify({"error": "Processing job not found."}), 404
         return jsonify(job)
+
+
+@app.get("/download/<job_id>")
+def download_processed_files(job_id):
+    with PROCESS_JOBS_LOCK:
+        job = PROCESS_JOBS.get(job_id)
+        if job is None:
+            return jsonify({"error": "Processing job not found."}), 404
+        if job.get("status") != "completed":
+            return jsonify({"error": "Processing is not completed yet."}), 400
+        processed_path = Path(job.get("processed_path") or "")
+        download_name = job.get("processed_file") or processed_path.name
+
+    if not processed_path.exists() or not processed_path.is_file():
+        return jsonify({"error": "Processed file not found."}), 404
+
+    response = send_file(
+        processed_path,
+        as_attachment=True,
+        download_name=download_name,
+        mimetype="video/mp4",
+    )
+
+    @response.call_on_close
+    def cleanup_download_artifacts():
+        empty_directory(OUTPUT_DIR)
+
+    return response
 
 
 if __name__ == "__main__":

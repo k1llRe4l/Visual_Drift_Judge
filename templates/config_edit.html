@@ -29,6 +29,16 @@
                     <span class="field-label">Number of clipping points</span>
                     <input id="clip-count" class="text-input" type="number" min="1" step="1" value="1">
                 </label>
+
+                <label class="field-group">
+                    <span class="field-label">Max. trajectory score</span>
+                    <input id="max-trajectory-score" class="text-input" type="number" min="0" step="1" value="0">
+                </label>
+
+                <label class="field-group">
+                    <span class="field-label">Max. angle score</span>
+                    <input id="max-angle-score" class="text-input" type="number" min="0" step="1" value="0">
+                </label>
             </div>
 
             <div class="button-row editor-actions">
@@ -49,6 +59,8 @@
 <script>
     const configNameInput = document.getElementById('config-name');
     const clipCountInput = document.getElementById('clip-count');
+    const maxTrajectoryScoreInput = document.getElementById('max-trajectory-score');
+    const maxAngleScoreInput = document.getElementById('max-angle-score');
     const saveButton = document.getElementById('save-button');
     const continueButton = document.getElementById('continue-button');
     const pointsGrid = document.getElementById('points-grid');
@@ -58,6 +70,10 @@
     const setStatus = (message, isError = false) => {
         statusMessage.textContent = message;
         statusMessage.dataset.state = isError ? 'error' : 'default';
+    };
+
+    const showScoreLimitError = () => {
+        setStatus('Сумма баллов по двум критериям не должна превышать 100', true);
     };
 
     const createToggleMarkup = (selectedValue) => `
@@ -103,16 +119,37 @@
 
     const getPayload = () => {
         const clippingPoints = Math.max(1, Number.parseInt(clipCountInput.value || '1', 10));
+        const maxTrajectoryScore = Math.max(0, Number.parseInt(maxTrajectoryScoreInput.value || '0', 10));
+        const maxAngleScore = Math.max(0, Number.parseInt(maxAngleScoreInput.value || '0', 10));
+
+        maxTrajectoryScoreInput.value = maxTrajectoryScore;
+        maxAngleScoreInput.value = maxAngleScore;
+
         return {
             configuration_name: configNameInput.value.trim(),
             clipping_points: clippingPoints,
+            max_trajectory_score: maxTrajectoryScore,
+            max_angle_score: maxAngleScore,
             points: getPointData().slice(0, clippingPoints),
         };
+    };
+
+    const validateScoreLimit = (payload) => {
+        if ((payload.max_trajectory_score + payload.max_angle_score) > 100) {
+            return 'Сумма баллов по двум критериям не должна превышать 100';
+        }
+
+        return null;
     };
 
     const validateContinuePayload = (payload) => {
         if (!payload.configuration_name) {
             return 'Enter a configuration name before continuing.';
+        }
+
+        const scoreLimitError = validateScoreLimit(payload);
+        if (scoreLimitError) {
+            return scoreLimitError;
         }
 
         if (!payload.points.length || payload.points.length !== payload.clipping_points) {
@@ -159,6 +196,11 @@
             return;
         }
 
+        if (validateScoreLimit(payload)) {
+            showScoreLimitError();
+            return;
+        }
+
         saveButton.disabled = true;
         setStatus('Saving configuration...');
 
@@ -189,6 +231,11 @@
         const validationError = validateContinuePayload(payload);
 
         if (validationError) {
+            if (validationError === 'Сумма баллов по двум критериям не должна превышать 100') {
+                showScoreLimitError();
+                return;
+            }
+
             setStatus(validationError, true);
             return;
         }
@@ -241,6 +288,8 @@
 
             configNameInput.value = data.configuration_name || configurationName;
             clipCountInput.value = data.clipping_points || 1;
+            maxTrajectoryScoreInput.value = data.max_trajectory_score || 0;
+            maxAngleScoreInput.value = data.max_angle_score || 0;
             renderPoints(data.clipping_points || 1, data.points || []);
             setStatus(`Loaded ${configurationName}.`);
         } catch (error) {

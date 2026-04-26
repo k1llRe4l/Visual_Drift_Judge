@@ -78,6 +78,17 @@ body {
     gap: 26px;
 }
 
+.result-page-shell {
+    padding: 48px 32px;
+}
+
+.result-panel {
+    width: min(1120px, 100%);
+    display: grid;
+    justify-items: center;
+    gap: 56px;
+}
+
 .selection-title {
     margin: 0;
     width: 100%;
@@ -310,6 +321,65 @@ h1 {
     flex-wrap: wrap;
 }
 
+.result-grid {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(240px, 280px));
+    justify-content: center;
+    gap: 36px;
+    align-items: start;
+}
+
+.result-card {
+    display: grid;
+    justify-items: center;
+    gap: 22px;
+    width: 100%;
+}
+
+.result-label {
+    margin: 0;
+    color: var(--fg);
+    font-size: clamp(1.25rem, 2vw, 2rem);
+    text-transform: uppercase;
+    text-align: center;
+}
+
+.result-value-box {
+    width: 100%;
+    min-height: 220px;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: rgba(255, 255, 255, 0.16);
+    color: var(--fg);
+    font-size: clamp(3.4rem, 7vw, 5.4rem);
+    font-weight: 700;
+    line-height: 1;
+    text-align: center;
+    overflow-wrap: anywhere;
+}
+
+.result-download-button {
+    width: min(880px, 100%);
+    margin-inline: auto; /* Добавь это */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    border: 0;
+    background: rgba(255, 255, 255, 0.74);
+    color: #111111;
+    text-align: center;
+    text-transform: uppercase;
+    font-size: clamp(1rem, 2vw, 1.35rem);
+    padding-inline: 0;
+}
+
+.result-download-button:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.94);
+    color: #111111;
+}
+
 .editor-actions .submit-button {
     width: 100%;
     justify-self: stretch;
@@ -460,6 +530,16 @@ h1 {
 
     .control-grid {
         grid-template-columns: 1fr;
+    }
+
+    .result-grid {
+        grid-template-columns: 1fr;
+        gap: 28px;
+        width: min(320px, 100%);
+    }
+
+    .result-value-box {
+        min-height: 170px;
     }
 
     .drop-zone {

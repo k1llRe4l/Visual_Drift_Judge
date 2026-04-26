@@ -125,6 +125,7 @@
                 stopPolling();
                 submitButton.disabled = false;
                 updateSubmitButtonState();
+                window.location.href = `/result/${activeJobId}`;
             } else if (job.status === 'failed') {
                 stopPolling();
                 submitButton.disabled = false;
