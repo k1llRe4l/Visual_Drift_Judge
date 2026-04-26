@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Processing Result</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+<button class="back-button" type="button" onclick="window.location.href='/upload'" aria-label="Go back">
+    <img src="{{ url_for('static', filename='img/arrow.png') }}" alt="">
+</button>
+<main class="page-shell result-page-shell">
+    <section class="result-panel">
+        <p class="eyebrow">Visual Drift Judge</p>
+        {% if job %}
+            {% set scores = job.scores or {} %}
+            {% set line_score = scores.get('line_score', 0) %}
+            {% set angle_score = scores.get('angle_score', 0) %}
+            {% set total_score = scores.get('total_score', 0) %}
+            <div class="result-grid">
+                <article class="result-card">
+                    <p class="result-label">LINE:</p>
+                    <div class="result-value-box">{{ "{:g}".format(line_score) }}</div>
+                </article>
+                <article class="result-card">
+                    <p class="result-label">ANGLE:</p>
+                    <div class="result-value-box">{{ "{:g}".format(angle_score) }}</div>
+                </article>
+                <article class="result-card">
+                    <p class="result-label">TOTAL SCORE:</p>
+                    <div class="result-value-box">{{ "{:g}".format(total_score) }}</div>
+                </article>
+            </div>
+            <a class="submit-button result-download-button" href="{{ url_for('download_processed_files', job_id=job_id) }}">
+                Download video
+            </a>
+        {% else %}
+            <p class="status-message" data-state="error">Processing result was not found.</p>
+        {% endif %}
+    </section>
+</main>
+</body>
+</html>
