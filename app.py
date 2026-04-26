@@ -1,8 +1,5 @@
 # TODO: добавить README
-# TODO: пободаться с CUDA и несовместимостью версий библиотек
-# UserWarning: Specified provider 'CUDAExecutionProvider' is not in available provider names.Available providers: 'AzureExecutionProvider, CPUExecutionProvider'
-# UserWarning: Specified provider 'OpenVINOExecutionProvider' is not in available provider names.Available providers: 'AzureExecutionProvider, CPUExecutionProvider'
-# UserWarning: Specified provider 'CoreMLExecutionProvider' is not in available provider names.Available providers: 'AzureExecutionProvider, CPUExecutionProvider'
+
 import json
 import threading
 import time

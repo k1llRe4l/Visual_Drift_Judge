@@ -17,3 +17,4 @@ supervision==0.27.0.post2
 torch==2.11.0+cu130
 torchvision==0.26.0+cu130
 inference-gpu==1.2.5
+onnxruntime-gpu
