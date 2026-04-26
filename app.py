@@ -1,7 +1,5 @@
 # TODO: добавить README
 # TODO: пободаться с CUDA и несовместимостью версий библиотек
-import os
-os.environ["CORE_MODEL_SAM3_ENABLED"] = "True"
 import json
 import threading
 import time

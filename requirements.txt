@@ -1,7 +1,19 @@
-Flask~=3.1.3
-Werkzeug~=3.1.7
-opencv-python~=4.10.0.84
-numpy~=2.3.5
-supervision~=0.27.0.post2
-inference-gpu
-shapely
+# Direct third-party dependencies imported by app.py and model.py.
+# Standard-library imports such as json, math, threading, time, uuid, and pathlib are excluded.
+#
+# GPU note:
+# - This project uses Roboflow Inference through the `inference` import.
+# - For GPU support, install `inference-gpu`, which provides the `inference` package.
+# - PyTorch wheels are pinned to the CUDA 13.0 channel because that is the closest
+#   officially documented CUDA 13.x wheel target verified here.
+--extra-index-url https://download.pytorch.org/whl/cu130
+
+Flask==3.1.3
+Werkzeug==3.1.8
+numpy==2.3.5
+opencv-python==4.10.0.84
+shapely==2.0.7
+supervision==0.27.0.post2
+torch==2.11.0+cu130
+torchvision==0.26.0+cu130
+inference-gpu==1.2.3
