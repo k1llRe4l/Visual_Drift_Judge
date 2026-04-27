@@ -8,7 +8,7 @@
 
 ## Системные требования
 
-Для корректной работы установите все библиотеки перечисленные в requirements.txt
+Для корректной работы установите все библиотеки перечисленные в ***requirements.txt***
 Установите компоненты CUDA Toolkit и cuDNN требуемых версий:
 - CUDA 12.0: https://developer.nvidia.com/cuda-12-0-0-download-archive
 - cuDNN 9.0: https://developer.nvidia.com/cudnn-downloads
