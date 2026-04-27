@@ -17,6 +17,8 @@ DEFAULT_CONFIDENCE = 0.7
 DEFAULT_CLIP_CONFIDENCE = 0.5
 DEFAULT_SKIP_FACTOR = 2
 DEFAULT_OUTPUT_FPS = 30
+ZONE_MISSED_DISTANCE_DELTA = 75
+ZONE_EXIT_BUFFER_THRESHOLD = 5
 
 FRONT_IDX = 0
 REAR_IDX = 4
@@ -143,6 +145,14 @@ def _build_score_summary(judging_state):
     }
 
 
+def _advance_zone(judging_state):
+    judging_state["current_zone_idx"] += 1
+    judging_state["is_inside_zone"] = False
+    judging_state["best_angle_in_zone"] = 0.0
+    judging_state["exit_buffer"] = 0
+    judging_state["closest_zone_distance"] = None
+
+
 def process_video(
     input_path,
     output_path,
@@ -169,6 +179,7 @@ def process_video(
         "is_inside_zone": False,
         "best_angle_in_zone": 0.0,
         "exit_buffer": 0,
+        "closest_zone_distance": None,
     }
 
     try:
@@ -304,10 +315,23 @@ def process_video(
 
                 if valid_polygons:
                     active_poly, best_dist, active_clip_idx = valid_polygons[0]
+                    if judging_state["closest_zone_distance"] is None:
+                        judging_state["closest_zone_distance"] = best_dist
+                    else:
+                        judging_state["closest_zone_distance"] = min(
+                            judging_state["closest_zone_distance"],
+                            best_dist,
+                        )
                     wheel_reference = target_zone_data.get("wheel_reference", "back wheels")
                     reference_points = front_points if wheel_reference == "front wheels" else rear_points
                     is_hitting = any(active_poly.contains(car_point) for car_point in reference_points)
                     active_clip = clip_kp[active_clip_idx : active_clip_idx + 1]
+
+                    moving_away_without_hit = (
+                        not judging_state["is_inside_zone"]
+                        and judging_state["closest_zone_distance"] is not None
+                        and best_dist > judging_state["closest_zone_distance"] + ZONE_MISSED_DISTANCE_DELTA
+                    )
 
                     if is_hitting:
                         hit_detected = True
@@ -324,13 +348,17 @@ def process_video(
                     else:
                         if judging_state["is_inside_zone"]:
                             judging_state["exit_buffer"] += 1
+                        elif moving_away_without_hit:
+                            judging_state["exit_buffer"] += 1
+                        else:
+                            judging_state["exit_buffer"] = 0
                         annotated_frame = incomplete_ann.annotate(
                             scene=annotated_frame,
                             key_points=active_clip,
                         )
 
                     if judging_state["is_inside_zone"] and (
-                        judging_state["exit_buffer"] > 5 or best_dist > 450
+                        judging_state["exit_buffer"] > ZONE_EXIT_BUFFER_THRESHOLD
                     ):
                         zone_index = target_zone_data["index"]
                         target_angle = float(target_zone_data["target_angle"])
@@ -347,11 +375,22 @@ def process_video(
                             f"Zone {zone_index} finished. Angle Score: {angle_score}, Line Score: {line_score}",
                             log_callback,
                         )
-
-                        judging_state["current_zone_idx"] += 1
-                        judging_state["is_inside_zone"] = False
-                        judging_state["best_angle_in_zone"] = 0.0
-                        judging_state["exit_buffer"] = 0
+                        _advance_zone(judging_state)
+                    elif (
+                        not judging_state["is_inside_zone"]
+                        and moving_away_without_hit
+                        and judging_state["exit_buffer"] > ZONE_EXIT_BUFFER_THRESHOLD
+                    ):
+                        zone_index = target_zone_data["index"]
+                        _emit_log(
+                            (
+                                f"Zone {zone_index} missed. "
+                                f"Closest distance was {judging_state['closest_zone_distance']:.1f}px, "
+                                f"current distance is {best_dist:.1f}px. Advancing to the next zone."
+                            ),
+                            log_callback,
+                        )
+                        _advance_zone(judging_state)
 
             if hit_detected:
                 annotated_frame = _draw_zone_hit_banner(annotated_frame, width)
@@ -368,6 +407,7 @@ def process_video(
                     time.time() - started_at,
                 )
             frame_count += 1
+
     finally:
         cap.release()
         if out is not None:
