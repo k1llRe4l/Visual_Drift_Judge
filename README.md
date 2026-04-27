@@ -19,7 +19,7 @@
 На данный момент система обучена только на данных полученных в симуляторе Assetto Corsa. Для того чтобы система корректно обработала вашу запись, нужно сделать следующее:
 - Assetto Corsa должна быть куплена в [**Steam**](https://store.steampowered.com/app/244210/Assetto_Corsa/)
 - Установите [**Content Manager**](https://assettocorsa.club/content-manager.html) и **Custom Shaders Patch**
-- - В настройках по пути **Settings ➔ Assetto Corsa ➔ Chase Camera** установите следующие значения для любой из камер:
+- В настройках по пути **Settings ➔ Assetto Corsa ➔ Chase Camera** установите следующие значения для любой из камер:
 ![Настройки камеры](/static/misc/chase_cam.png)
 -  В Content Manager в настройках по пути **Settings ➔ Custom Shaders ➔ Camera ➔ Chase** установите флажок "Active" и Script "Basic".
 ![Скрипт камеры](/static/misc/csp_chase.png)
