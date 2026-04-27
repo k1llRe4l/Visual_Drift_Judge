@@ -14,7 +14,7 @@ ROBOFLOW_API_KEY = "0BHeHlDTavVYGbSOAiQa"
 CAR_MODEL_ID = "driftcars/5"
 CLIP_MODEL_ID = "clippingpoints/3"
 DEFAULT_CONFIDENCE = 0.7
-DEFAULT_CLIP_CONFIDENCE = 0.5
+DEFAULT_CLIP_CONFIDENCE = 0.6
 DEFAULT_SKIP_FACTOR = 2
 DEFAULT_OUTPUT_FPS = 30
 ZONE_MISSED_DISTANCE_DELTA = 75
@@ -180,6 +180,7 @@ def process_video(
         "best_angle_in_zone": 0.0,
         "exit_buffer": 0,
         "closest_zone_distance": None,
+        "zone_visible_in_frame": False,
     }
 
     try:
@@ -264,6 +265,7 @@ def process_video(
             drift_angle = 0.0
             front_points = []
             rear_points = []
+            judging_state["zone_visible_in_frame"] = False
 
             car_results = car_model.infer(frame, confidence=confidence)[0]
             car_kp = sv.KeyPoints.from_inference(car_results)
@@ -314,6 +316,7 @@ def process_video(
                 valid_polygons.sort(key=lambda item: item[1])
 
                 if valid_polygons:
+                    judging_state["zone_visible_in_frame"] = True
                     active_poly, best_dist, active_clip_idx = valid_polygons[0]
                     if judging_state["closest_zone_distance"] is None:
                         judging_state["closest_zone_distance"] = best_dist
@@ -372,7 +375,7 @@ def process_video(
                         judging_state["zone_line_scores"][zone_index] = line_score
 
                         _emit_log(
-                            f"Zone {zone_index} finished. Angle Score: {angle_score}, Line Score: {line_score}",
+                            f"Zone {zone_index} finished. Angle Score: {angle_score} Line Score: {line_score}",
                             log_callback,
                         )
                         _advance_zone(judging_state)
@@ -382,15 +385,30 @@ def process_video(
                         and judging_state["exit_buffer"] > ZONE_EXIT_BUFFER_THRESHOLD
                     ):
                         zone_index = target_zone_data["index"]
-                        _emit_log(
-                            (
-                                f"Zone {zone_index} missed. "
-                                f"Closest distance was {judging_state['closest_zone_distance']:.1f}px, "
-                                f"current distance is {best_dist:.1f}px. Advancing to the next zone."
-                            ),
-                            log_callback,
-                        )
+                        _emit_log(f"Zone {zone_index} missed.", log_callback)
                         _advance_zone(judging_state)
+
+            if judging_state["is_inside_zone"] and not judging_state["zone_visible_in_frame"]:
+                judging_state["exit_buffer"] += 1
+
+                if judging_state["exit_buffer"] > ZONE_EXIT_BUFFER_THRESHOLD and judging_state["current_zone_idx"] < total_zones:
+                    target_zone_data = points_config[judging_state["current_zone_idx"]]
+                    zone_index = target_zone_data["index"]
+                    target_angle = float(target_zone_data["target_angle"])
+                    actual_angle = judging_state["best_angle_in_zone"]
+
+                    diff = max(0.0, target_angle - actual_angle)
+                    angle_score = round(max(0.0, max_angle_per_zone * (1 - (diff / 25))), 2)
+                    line_score = round(traj_score_per_zone, 2)
+
+                    judging_state["zone_angle_scores"][zone_index] = angle_score
+                    judging_state["zone_line_scores"][zone_index] = line_score
+
+                    _emit_log(
+                        f"Zone {zone_index} finished. Angle Score: {angle_score} Line Score: {line_score}",
+                        log_callback,
+                    )
+                    _advance_zone(judging_state)
 
             if hit_detected:
                 annotated_frame = _draw_zone_hit_banner(annotated_frame, width)
