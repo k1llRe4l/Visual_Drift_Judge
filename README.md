@@ -11,7 +11,7 @@
 Для корректной работы установите все библиотеки перечисленные в ***requirements.txt***
 Установите компоненты CUDA Toolkit и cuDNN требуемых версий:
 - CUDA 12.0: https://developer.nvidia.com/cuda-12-0-0-download-archive
-- cuDNN 9.0: https://developer.nvidia.com/cudnn-downloads
+- cuDNN 9.21: https://developer.nvidia.com/cudnn-downloads
 > **Внимание:** Работает только с видеокартами NVIDIA. При отсутствии обсчет будет производится на мощностях процессора и займет значительно больше времени.
 
 ## Ограничения
