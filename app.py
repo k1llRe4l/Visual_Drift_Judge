@@ -1,6 +1,5 @@
-# TODO: добавить README
-
 import json
+import os
 import threading
 import time
 import uuid
@@ -33,6 +32,8 @@ ACTIVE_CONFIG_INPUT = {
 }
 PROCESS_JOBS = {}
 PROCESS_JOBS_LOCK = threading.Lock()
+MODEL_WARMUP_STARTED = False
+MODEL_WARMUP_LOCK = threading.Lock()
 
 
 def allowed_file(filename):
@@ -80,13 +81,49 @@ def append_process_log(job_id, message):
         job.setdefault("logs", []).append(message)
 
 
+def _startup_log(message):
+    print(message)
+    app.logger.info(message)
+
+
+def warmup_models_in_background():
+    global MODEL_WARMUP_STARTED
+
+    with MODEL_WARMUP_LOCK:
+        if MODEL_WARMUP_STARTED:
+            return
+        MODEL_WARMUP_STARTED = True
+
+    def worker():
+        try:
+            _startup_log("Starting background model warmup...")
+            from model import warmup_models
+
+            warmup_models(log_callback=_startup_log)
+        except Exception as exc:
+            _startup_log(f"Background model warmup failed: {exc}")
+
+    threading.Thread(target=worker, daemon=True).start()
+
+
 def run_process_job(job_id, input_path, output_path, output_name):
     started_at = time.time()
 
     try:
+        update_process_job(
+            job_id,
+            status="initializing",
+            evaluated_frames=0,
+            total_evaluated_frames=0,
+            eta_seconds=None,
+        )
+        append_process_log(job_id, f"Starting video evaluation for {Path(input_path).name}")
+        append_process_log(job_id, "Initializing processing job...")
+        append_process_log(job_id, "Importing video processing pipeline...")
+
         from model import process_video
 
-        append_process_log(job_id, f"Starting video evaluation for {Path(input_path).name}")
+        append_process_log(job_id, "Video processing pipeline imported.")
 
         def progress_callback(evaluated_frames, total_evaluated_frames, elapsed_seconds):
             eta_seconds = None
@@ -115,6 +152,17 @@ def run_process_job(job_id, input_path, output_path, output_name):
             "points": [point.copy() for point in ACTIVE_CONFIG_INPUT["points"]],
         }
 
+        append_process_log(job_id, "Preparing active judging configuration...")
+        append_process_log(
+            job_id,
+            (
+                "Configuration ready: "
+                f"{active_config['configuration_name']} "
+                f"with {active_config['clipping_points']} clipping points."
+            ),
+        )
+        append_process_log(job_id, "Loading detection models and warming up inference...")
+
         process_result = process_video(
             input_path,
             output_path,
@@ -128,6 +176,7 @@ def run_process_job(job_id, input_path, output_path, output_name):
             "total_score": 0.0,
         }
 
+        append_process_log(job_id, "Frame processing finished. Finalizing output files...")
         append_process_log(job_id, f"Processing complete. Saved as {output_name} in the processed folder.")
         append_process_log(job_id, f"Output path: {output_path}")
 
@@ -436,4 +485,7 @@ def download_processed_files(job_id):
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    debug_mode = True
+    if os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not debug_mode:
+        warmup_models_in_background()
+    app.run(debug=debug_mode)

@@ -1,4 +1,5 @@
 import math
+import threading
 import time
 from pathlib import Path
 import cv2
@@ -24,6 +25,8 @@ ZONE_EDGES = [(0, 1), (1, 2), (2, 3), (3, 0)]
 
 _car_model = None
 _clip_model = None
+_car_model_lock = threading.Lock()
+_clip_model_lock = threading.Lock()
 
 
 def _emit_log(message, log_callback=None):
@@ -42,16 +45,32 @@ def _print_cuda_status(log_callback=None):
 def _get_car_model(log_callback=None):
     global _car_model
     if _car_model is None:
-        _print_cuda_status(log_callback)
-        _car_model = get_model(model_id=CAR_MODEL_ID, api_key=ROBOFLOW_API_KEY)
+        with _car_model_lock:
+            if _car_model is None:
+                _emit_log(f"Loading car detection model: {CAR_MODEL_ID}", log_callback)
+                _print_cuda_status(log_callback)
+                _car_model = get_model(model_id=CAR_MODEL_ID, api_key=ROBOFLOW_API_KEY)
+                _emit_log("Car detection model loaded.", log_callback)
     return _car_model
 
 
 def _get_clip_model(log_callback=None):
     global _clip_model
     if _clip_model is None:
-        _clip_model = get_model(model_id=CLIP_MODEL_ID, api_key=ROBOFLOW_API_KEY)
+        with _clip_model_lock:
+            if _clip_model is None:
+                _emit_log(f"Loading clipping-point model: {CLIP_MODEL_ID}", log_callback)
+                _clip_model = get_model(model_id=CLIP_MODEL_ID, api_key=ROBOFLOW_API_KEY)
+                _emit_log("Clipping-point model loaded.", log_callback)
     return _clip_model
+
+
+def warmup_models(log_callback=None):
+    started_at = time.time()
+    _emit_log("Starting model warmup...", log_callback)
+    _get_car_model(log_callback)
+    _get_clip_model(log_callback)
+    _emit_log(f"Model warmup complete in {time.time() - started_at:.2f}s.", log_callback)
 
 
 def _calculate_drift_angle(points):
