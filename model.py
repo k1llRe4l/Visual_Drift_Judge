@@ -13,8 +13,8 @@ from shapely.geometry import Point, Polygon
 ROBOFLOW_API_KEY = "0BHeHlDTavVYGbSOAiQa"
 CAR_MODEL_ID = "driftcars/5"
 CLIP_MODEL_ID = "clippingpoints/3"
-DEFAULT_CONFIDENCE = 0.7
-DEFAULT_CLIP_CONFIDENCE = 0.6
+DEFAULT_CAR_CONFIDENCE = 0.7
+DEFAULT_CLIP_CONFIDENCE = 0.7
 DEFAULT_SKIP_FACTOR = 2
 DEFAULT_OUTPUT_FPS = 30
 ZONE_MISSED_DISTANCE_DELTA = 75
@@ -157,7 +157,7 @@ def process_video(
     input_path,
     output_path,
     active_config=None,
-    confidence=DEFAULT_CONFIDENCE,
+    car_confidence=DEFAULT_CAR_CONFIDENCE,
     clip_confidence=DEFAULT_CLIP_CONFIDENCE,
     skip_factor=DEFAULT_SKIP_FACTOR,
     progress_callback=None,
@@ -267,7 +267,7 @@ def process_video(
             rear_points = []
             judging_state["zone_visible_in_frame"] = False
 
-            car_results = car_model.infer(frame, confidence=confidence)[0]
+            car_results = car_model.infer(frame, confidence=car_confidence)[0]
             car_kp = sv.KeyPoints.from_inference(car_results)
 
             if not car_kp.is_empty():
