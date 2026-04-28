@@ -12,7 +12,7 @@ from shapely.geometry import Point, Polygon
 
 ROBOFLOW_API_KEY = "0BHeHlDTavVYGbSOAiQa"
 CAR_MODEL_ID = "driftcars/5"
-CLIP_MODEL_ID = "clippingpoints/3"
+CLIP_MODEL_ID = "clippingpoints/4"
 DEFAULT_CAR_CONFIDENCE = 0.7
 DEFAULT_CLIP_CONFIDENCE = 0.5
 DEFAULT_SKIP_FACTOR = 2
