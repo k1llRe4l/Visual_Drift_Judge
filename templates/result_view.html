@@ -15,9 +15,14 @@
         <p class="eyebrow">Visual Drift Judge</p>
         {% if job %}
             {% set scores = job.scores or {} %}
+            {% set score_limits = job.score_limits or {} %}
             {% set line_score = scores.get('line_score', 0) %}
             {% set angle_score = scores.get('angle_score', 0) %}
+            {% set style_score = scores.get('style_score', 0) %}
             {% set total_score = scores.get('total_score', 0) %}
+            {% set max_trajectory_score = score_limits.get('max_trajectory_score', 0) %}
+            {% set max_angle_score = score_limits.get('max_angle_score', 0) %}
+            {% set max_style_score = [100 - max_angle_score - max_trajectory_score, 0] | max %}
             <div class="result-grid">
                 <article class="result-card">
                     <p class="result-label">LINE:</p>
@@ -28,13 +33,96 @@
                     <div class="result-value-box">{{ "{:g}".format(angle_score) }}</div>
                 </article>
                 <article class="result-card">
+                    <p class="result-label">STYLE:</p>
+                    <div class="result-value-box result-input-box">
+                        <input
+                            id="style-score-input"
+                            class="result-score-input"
+                            type="number"
+                            min="0"
+                            max="{{ "{:g}".format(max_style_score) }}"
+                            step="0.01"
+                            value="{{ "{:g}".format(style_score) }}"
+                            inputmode="decimal"
+                            aria-label="Style score"
+                        >
+                    </div>
+                    <p class="result-hint">Max style score: {{ "{:g}".format(max_style_score) }}</p>
+                </article>
+                <article class="result-card">
                     <p class="result-label">TOTAL SCORE:</p>
-                    <div class="result-value-box">{{ "{:g}".format(total_score) }}</div>
+                    <div id="total-score-value" class="result-value-box">{{ "{:g}".format(total_score) }}</div>
                 </article>
             </div>
+            <p id="result-status-message" class="status-message" aria-live="polite"></p>
             <a class="submit-button result-download-button" href="{{ url_for('download_processed_files', job_id=job_id) }}">
                 Download video
             </a>
+            <script>
+                const styleScoreInput = document.getElementById('style-score-input');
+                const totalScoreValue = document.getElementById('total-score-value');
+                const resultStatusMessage = document.getElementById('result-status-message');
+                const maxStyleScore = Number.parseFloat('{{ max_style_score }}') || 0;
+                const jobId = '{{ job_id }}';
+
+                const formatScore = (value) => {
+                    const numericValue = Number.parseFloat(value) || 0;
+                    return Number.isInteger(numericValue) ? String(numericValue) : numericValue.toFixed(2).replace(/\.?0+$/, '');
+                };
+
+                const setStatus = (message, isError = false) => {
+                    resultStatusMessage.textContent = message;
+                    resultStatusMessage.dataset.state = isError ? 'error' : 'default';
+                };
+
+                const persistStyleScore = async () => {
+                    const rawValue = styleScoreInput.value.trim();
+                    let styleScore = rawValue === '' ? 0 : Number.parseFloat(rawValue);
+                    let statusMessage = '';
+                    let isError = false;
+
+                    if (Number.isNaN(styleScore)) {
+                        setStatus('Style score must be a number.', true);
+                        return;
+                    }
+
+                    if (styleScore < 0) {
+                        styleScore = 0;
+                    }
+
+                    if (styleScore > maxStyleScore) {
+                        styleScore = maxStyleScore;
+                        statusMessage = `Style score cannot exceed ${formatScore(maxStyleScore)}.`;
+                        isError = true;
+                    }
+
+                    styleScoreInput.value = formatScore(styleScore);
+
+                    try {
+                        const response = await fetch(`/process/${encodeURIComponent(jobId)}/style`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({ style_score: styleScore }),
+                        });
+                        const data = await response.json();
+
+                        if (!response.ok) {
+                            throw new Error(data.error || 'Could not update style score.');
+                        }
+
+                        styleScoreInput.value = formatScore(data.scores.style_score || 0);
+                        totalScoreValue.textContent = formatScore(data.scores.total_score || 0);
+                        setStatus(statusMessage, isError);
+                    } catch (error) {
+                        setStatus(error.message, true);
+                    }
+                };
+
+                styleScoreInput.addEventListener('input', persistStyleScore);
+                persistStyleScore();
+            </script>
         {% else %}
             <p class="status-message" data-state="error">Processing result was not found.</p>
         {% endif %}

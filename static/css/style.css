@@ -324,7 +324,7 @@ h1 {
 .result-grid {
     width: 100%;
     display: grid;
-    grid-template-columns: repeat(3, minmax(240px, 280px));
+    grid-template-columns: repeat(4, minmax(220px, 1fr));
     justify-content: center;
     gap: 36px;
     align-items: start;
@@ -358,6 +358,42 @@ h1 {
     line-height: 1;
     text-align: center;
     overflow-wrap: anywhere;
+}
+
+.result-input-box {
+    padding: 0;
+}
+
+.result-score-input {
+    width: 100%;
+    min-height: 220px;
+    border: 0;
+    background: transparent;
+    color: var(--fg);
+    text-align: center;
+    font: inherit;
+    font-size: clamp(3.4rem, 7vw, 5.4rem);
+    font-weight: 700;
+    line-height: 1;
+    outline: none;
+    padding: 20px;
+}
+
+.result-score-input::-webkit-outer-spin-button,
+.result-score-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.result-score-input[type="number"] {
+    -moz-appearance: textfield;
+}
+
+.result-hint {
+    margin: 0;
+    color: var(--fg-soft);
+    font-size: 0.95rem;
+    text-align: center;
 }
 
 .result-download-button {

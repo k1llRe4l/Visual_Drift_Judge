@@ -36,6 +36,54 @@ MODEL_WARMUP_STARTED = False
 MODEL_WARMUP_LOCK = threading.Lock()
 
 
+def _to_float(value, default=0.0):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def build_score_summary(base_scores=None, style_score=0.0):
+    scores = dict(base_scores or {})
+    line_score = round(_to_float(scores.get("line_score")), 2)
+    angle_score = round(_to_float(scores.get("angle_score")), 2)
+    style_score = round(_to_float(scores.get("style_score"), style_score), 2)
+    total_score = round(line_score + angle_score + style_score, 2)
+
+    return {
+        "line_score": line_score,
+        "angle_score": angle_score,
+        "style_score": style_score,
+        "total_score": total_score,
+    }
+
+
+def validate_style_score(style_score, score_limits, current_scores):
+    try:
+        style_score = float(style_score)
+    except (TypeError, ValueError):
+        raise ValueError("Style score must be a number.")
+
+    if style_score < 0:
+        raise ValueError("Style score must be at least 0.")
+
+    max_trajectory_score = _to_float((score_limits or {}).get("max_trajectory_score"))
+    max_angle_score = _to_float((score_limits or {}).get("max_angle_score"))
+    max_style_score = max(0.0, 100.0 - max_angle_score - max_trajectory_score)
+
+    if style_score > max_style_score:
+        raise ValueError(f"Style score must not exceed {max_style_score:g}.")
+
+    line_score = _to_float((current_scores or {}).get("line_score"))
+    angle_score = _to_float((current_scores or {}).get("angle_score"))
+    total_score = round(line_score + angle_score + style_score, 2)
+
+    if total_score > 100:
+        raise ValueError("Total score must not exceed 100.")
+
+    return round(style_score, 2), total_score, round(max_style_score, 2)
+
+
 def allowed_file(filename):
     return Path(filename).suffix.lower() in ALLOWED_EXTENSIONS
 
@@ -170,11 +218,14 @@ def run_process_job(job_id, input_path, output_path, output_name):
             progress_callback=progress_callback,
             log_callback=log_callback,
         )
-        score_summary = (process_result or {}).get("scores") or {
-            "line_score": 0.0,
-            "angle_score": 0.0,
-            "total_score": 0.0,
-        }
+        with PROCESS_JOBS_LOCK:
+            existing_job = PROCESS_JOBS.get(job_id) or {}
+            existing_scores = dict(existing_job.get("scores") or {})
+
+        score_summary = build_score_summary(
+            (process_result or {}).get("scores"),
+            style_score=existing_scores.get("style_score", 0.0),
+        )
 
         append_process_log(job_id, "Frame processing finished. Finalizing output files...")
         append_process_log(job_id, f"Processing complete. Saved as {output_name} in the processed folder.")
@@ -254,6 +305,46 @@ def validate_score_limits(payload):
         raise ValueError("Сумма баллов по двум критериям не должна превышать 100")
 
     return max_trajectory_score, max_angle_score
+
+
+@app.post("/process/<job_id>/style")
+def update_style_score(job_id):
+    payload = request.get_json(silent=True) or {}
+
+    with PROCESS_JOBS_LOCK:
+        job = PROCESS_JOBS.get(job_id)
+        if job is None:
+            return jsonify({"error": "Processing job not found."}), 404
+
+        score_limits = dict(job.get("score_limits") or {})
+        current_scores = dict(job.get("scores") or {})
+
+    try:
+        style_score, total_score, max_style_score = validate_style_score(
+            payload.get("style_score"),
+            score_limits,
+            current_scores,
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    with PROCESS_JOBS_LOCK:
+        job = PROCESS_JOBS.get(job_id)
+        if job is None:
+            return jsonify({"error": "Processing job not found."}), 404
+
+        updated_scores = dict(job.get("scores") or {})
+        updated_scores["style_score"] = style_score
+        updated_scores["total_score"] = total_score
+        job["scores"] = updated_scores
+
+    return jsonify(
+        {
+            "message": "Style score updated successfully.",
+            "scores": updated_scores,
+            "max_style_score": max_style_score,
+        }
+    )
 
 
 @app.get("/api/configs/<config_name>")
@@ -426,14 +517,14 @@ def process():
             "uploaded_path": str(input_path),
             "processed_file": output_name,
             "processed_path": str(output_path),
+            "score_limits": {
+                "max_trajectory_score": ACTIVE_CONFIG_INPUT["max_trajectory_score"],
+                "max_angle_score": ACTIVE_CONFIG_INPUT["max_angle_score"],
+            },
             "evaluated_frames": 0,
             "total_evaluated_frames": 0,
             "eta_seconds": None,
-            "scores": {
-                "line_score": 0.0,
-                "angle_score": 0.0,
-                "total_score": 0.0,
-            },
+            "scores": build_score_summary(),
             "logs": [],
         }
 
